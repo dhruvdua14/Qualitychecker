@@ -1,101 +1,13 @@
-# Core web framework
-streamlit==1.37.0
-
-# Data processing and analysis
-pandas==2.1.4
-numpy==1.24.4
-
-# Data visualization
-matplotlib==3.8.2
-seaborn==0.13.0
-wordcloud==1.9.2
-
-# Natural Language Processing
-nltk==3.9
-
-# LangChain ecosystem for AI functionality
-langchain==0.3.7
-langchain-community==0.3.7
-langchain-groq==0.3.6
-langchain-core==0.3.15
-
-# Document processing - PowerPoint
-python-pptx==0.6.23
-
-# Alternative document processing (lighter than unstructured)
-# unstructured==0.11.8
-# unstructured[pptx]==0.11.8
-
-# HTTP requests and API calls
-requests==2.32.4
-httpx==0.25.2
-
-# JSON and data serialization
-pydantic==2.5.2
-
-# File handling and utilities
-pathlib2==2.3.7.post1
-python-dateutil==2.8.2
-
-# Image processing
-Pillow==11.3.0
-
-# Excel support (optional but useful)
-openpyxl==3.1.2
-
-# Environment variables
-python-dotenv==1.0.0
-
-# Logging and debugging
-colorlog==6.8.0
-
-# Mathematical operations
-scipy==1.11.4
-statistics
-
-# Text processing utilities
-textstat==0.7.3
-pyenchant==3.2.2
-
-# Progress bars and CLI utilities
-tqdm==4.66.3
-click==8.1.7
-
-# Caching and performance
-diskcache==5.6.3
-
-# PyCharm specific utilities
-pytest==7.4.3
-pytest-cov==4.1.0
-black==24.3.0
-flake8==6.1.0
-mypy==1.8.0
-
-# Additional streamlit components
-streamlit-option-menu==0.3.6
-streamlit-aggrid==0.3.4.post3
-
-# For better error handling
-sentry-sdk==2.8.0
-
-# Timezone handling
-pytz==2023.3
-
-# Hash utilities (built-in hashlib is sufficient, removing hashlib2)
-
-# Markdown processing
-markdown==3.5.1
-
-# CSV processing
-csv-detective==0.8.1
-
-# Regular expressions (built-in re module is sufficient)
-
-# Threading and async (if needed for future enhancements)
-asyncio
-
-# Memory profiling (development only)
-memory-profiler==0.61.0
-
-# System information
-psutil==5.9.6
+streamlit>=1.28.0
+pandas>=1.5.0
+numpy>=1.21.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+wordcloud>=1.9.0
+nltk>=3.8
+langchain-community>=0.0.20
+langchain-groq>=0.1.0
+langchain-core>=0.1.20
+python-pptx>=0.6.21
+unstructured[pptx]>=0.10.0
+pillow>=9.0.0
