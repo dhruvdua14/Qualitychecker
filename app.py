@@ -1,28 +1,21 @@
 """
 ================================================================================
-EduPPT Quality Analyzer Ultimate - Complete Edition v7.2 (Env Support)
+EduPPT Quality Analyzer Ultimate - Complete Edition v7.6 (LibreOffice EC2 Fix)
 ================================================================================
 The MOST COMPREHENSIVE PowerPoint Quality Analyzer for B.Tech Education
 
 FEATURES:
-✅ .ENV File Support for API Keys (New)
+✅ FIXED: LibreOffice "Exit Status 1" Error (Custom User Profile)
+✅ .ENV File Support for API Keys
 ✅ Google Gemini 2.0 Flash Multimodal Analysis (Best Accuracy)
+✅ AWS EC2 STABILITY PATCH (Memory & LibreOffice Fixes)
+✅ AUTO-CLEANUP on Startup (Fix for File Accumulation)
 ✅ Groq Llama 4 Analysis (Alternative)
 ✅ 7 Quality Categories with Detailed Metrics
 ✅ Slide-by-Slide AI Recommendations
-✅ Conceptual Error Detection (Images vs Text)
-✅ Visual-Text Alignment Checking
-✅ Educational Content Analysis
-✅ Student Engagement Scoring
-✅ Technical Depth Assessment
-✅ Visual Design Evaluation
-✅ Learning Progression Analysis
-✅ Interactive Visualizations (Charts, Word Clouds)
-✅ Comprehensive Reports (Markdown, JSON)
-✅ Works for ANY PPT Content - Universal Analyzer
 
 Author: Enhanced for PhysicsWallah EdTech
-Version: 7.2 (Strict Quality Mode + Env Support)
+Version: 7.6.0 (LibreOffice Profile Fix + AWS Stability)
 ================================================================================
 """
 
@@ -35,6 +28,9 @@ import io
 import re
 import tempfile
 import subprocess
+import random  # Required for Retry Logic
+import shutil
+import gc  # CRITICAL: For AWS Memory Management
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any, Union
 import hashlib
@@ -231,7 +227,7 @@ logger = logging.getLogger(__name__)
 
 def safe_nltk_download():
     """Safely download required NLTK data"""
-    required = ['punkt', 'stopwords', 'averaged_perceptron_tagger', 'punkt_tab']
+    required = ['punkt', 'stopwords', 'averaged_perceptron_tagger']
     messages = []
 
     for item in required:
@@ -257,7 +253,28 @@ if 'nltk_initialized' not in st.session_state:
 
 
 # ============================================
-# GEMINI MULTIMODAL ANALYZER
+# MEMORY & AWS UTILS (NEW)
+# ============================================
+
+def clean_memory():
+    """Aggressive memory cleanup for EC2"""
+    gc.collect()
+
+
+def resize_image_for_memory(image: Image.Image, max_dim: int = 1024) -> Image.Image:
+    """Resize image to prevent OOM while keeping quality for AI"""
+    try:
+        if max(image.size) > max_dim:
+            ratio = max_dim / max(image.size)
+            new_size = tuple(int(dim * ratio) for dim in image.size)
+            return image.resize(new_size, Image.Resampling.LANCZOS)
+        return image
+    except Exception:
+        return image
+
+
+# ============================================
+# GEMINI MULTIMODAL ANALYZER (FIXED)
 # ============================================
 
 class GeminiMultimodalAnalyzer:
@@ -296,6 +313,39 @@ class GeminiMultimodalAnalyzer:
 
         logger.info(f"Gemini initialized: {model}")
 
+    def _generate_with_retry(self, inputs, max_retries=5):
+        """
+        Internal helper to handle 429 Quota errors with Exponential Backoff
+        """
+        base_delay = 12  # Start with 12 seconds (Google typically asks for 10-15s)
+
+        for attempt in range(max_retries):
+            try:
+                # Memory Check before generation
+                clean_memory()
+                return self.model.generate_content(inputs)
+            except Exception as e:
+                # Check for Quota/Resource Exhausted errors
+                error_str = str(e)
+                if "429" in error_str or "ResourceExhausted" in error_str:
+                    if attempt == max_retries - 1:
+                        # Failed all retries
+                        logger.error(f"Failed after {max_retries} retries: {e}")
+                        raise e
+
+                        # Exponential Backoff: 12s, 24s, 48s... + Random Jitter
+                    wait_time = (base_delay * (2 ** attempt)) + random.uniform(0, 2)
+
+                    # Notify user via Streamlit and Console
+                    msg = f"⚠️ Quota limit hit. Pausing for {int(wait_time)}s before retry {attempt + 1}/{max_retries}..."
+                    print(msg)
+                    st.toast(msg, icon="⏳")  # Show toast notification
+                    time.sleep(wait_time)
+                else:
+                    # Raise other errors immediately
+                    raise e
+        return None
+
     def analyze_slide(self, image: Image.Image, slide_text: str,
                       slide_number: int, total_slides: int,
                       subject_area: str = "Engineering") -> Dict[str, Any]:
@@ -304,12 +354,8 @@ class GeminiMultimodalAnalyzer:
         Analyzes both visual and textual elements together
         """
         try:
-            # Optimize image size
-            max_size = 1024
-            if max(image.size) > max_size:
-                ratio = max_size / max(image.size)
-                new_size = tuple(int(dim * ratio) for dim in image.size)
-                image = image.resize(new_size, Image.Resampling.LANCZOS)
+            # Optimize image size immediately for memory safety on EC2
+            image = resize_image_for_memory(image)
 
             if image.mode != 'RGB':
                 image = image.convert('RGB')
@@ -407,8 +453,8 @@ RESPOND IN THIS EXACT FORMAT:
 
 Be thorough, specific, and objective. This analysis should work for ANY educational content."""
 
-            # Send to Gemini
-            response = self.model.generate_content([prompt, image])
+            # Send to Gemini with RETRY logic
+            response = self._generate_with_retry([prompt, image])
 
             # Parse response
             result = self._parse_response(response.text, slide_number)
@@ -614,6 +660,9 @@ class GroqLlamaAnalyzer:
                       image_base64: str = None) -> Dict[str, Any]:
         """Analyze slide with Groq/Llama"""
         try:
+            # Clean memory before calling LLM
+            clean_memory()
+
             prompt = f"""Analyze this educational slide for B.Tech students:
 
 SLIDE {slide_number}/{total_slides}
@@ -704,11 +753,11 @@ Provide analysis in this format:
 
 
 # ============================================
-# SLIDE IMAGE CONVERTER
+# SLIDE IMAGE CONVERTER (AWS PATCHED)
 # ============================================
 
 class SlideImageConverter:
-    """Convert PowerPoint slides to images for analysis"""
+    """Convert PowerPoint slides to images for analysis - AWS/EC2 Compatible"""
 
     def __init__(self, temp_dir: Path = None):
         self.temp_dir = temp_dir or Path(tempfile.mkdtemp())
@@ -721,98 +770,139 @@ class SlideImageConverter:
         """
         results = []
 
-        # Method 1: LibreOffice (best quality)
+        # Method 1: LibreOffice (best quality) - WITH EC2 PATH DETECTION
         try:
             results = self._convert_via_libreoffice(pptx_path)
             if results:
                 return results
         except Exception as e:
             logger.warning(f"LibreOffice failed: {e}")
+            st.toast("⚠️ LibreOffice failed or not found. Using fallback extractor...", icon="⚠️")
 
-        # Method 2: Extract images from shapes
+        # Method 2: Extract images from shapes (Fallback 1)
         try:
+            logger.info("Falling back to shape extraction")
             results = self._convert_via_shapes(pptx_path)
             if results:
                 return results
         except Exception as e:
             logger.warning(f"Shape extraction failed: {e}")
 
-        # Method 3: Create text-based placeholder images
+        # Method 3: Create text-based placeholder images (Last Resort)
+        logger.info("Falling back to placeholders")
         results = self._create_placeholder_images(pptx_path)
         return results
 
     def _convert_via_libreoffice(self, pptx_path: Path) -> List[Tuple[int, Image.Image, str]]:
-        """Convert using LibreOffice -> PDF -> Images"""
+        """Convert using LibreOffice -> PDF -> Images (EC2 Compatible)"""
         results = []
         pdf_path = self.temp_dir / f"{pptx_path.stem}.pdf"
 
-        # Convert to PDF
-        for cmd_base in ['soffice', 'libreoffice']:
+        # 1. Detect LibreOffice Binary for Linux/EC2
+        soffice_path = shutil.which("soffice") or shutil.which("libreoffice")
+
+        # Explicit common Linux paths if 'which' fails
+        if not soffice_path:
+            for path in ["/usr/bin/libreoffice", "/usr/bin/soffice", "/snap/bin/libreoffice"]:
+                if os.path.exists(path):
+                    soffice_path = path
+                    break
+
+        if not soffice_path:
+            raise Exception("LibreOffice binary not found in system path")
+
+        # 2. Setup Custom User Profile for Headless Execution
+        # This prevents permission errors and locks on EC2/Servers
+        user_profile_dir = Path(tempfile.mkdtemp())
+
+        # 3. Run Headless Conversion
+        cmd = [
+            soffice_path,
+            f"-env:UserInstallation=file://{user_profile_dir.as_posix()}",  # FIX: Use temp profile
+            '--headless',
+            '--nologo',
+            '--nofrststartwizard',
+            '--convert-to', 'pdf',
+            '--outdir', str(self.temp_dir),
+            str(pptx_path)
+        ]
+
+        try:
+            # Pass environment variables safely
+            env = os.environ.copy()
+            subprocess.run(cmd, check=True, capture_output=True, timeout=120, env=env)
+        except subprocess.TimeoutExpired:
+            raise Exception("LibreOffice conversion timed out")
+        except Exception as e:
+            raise Exception(f"LibreOffice execution failed: {str(e)}")
+        finally:
+            # Clean up the temporary user profile
             try:
-                cmd = [
-                    cmd_base, '--headless', '--convert-to', 'pdf',
-                    '--outdir', str(self.temp_dir), str(pptx_path)
-                ]
-                subprocess.run(cmd, check=True, capture_output=True, timeout=120)
-                break
+                shutil.rmtree(user_profile_dir, ignore_errors=True)
             except:
-                continue
+                pass
 
         if not pdf_path.exists():
-            raise Exception("PDF conversion failed")
+            raise Exception("PDF conversion failed to produce output file")
 
-        # Convert PDF to images
+        # 4. Convert PDF to images
         if PDF2IMAGE_AVAILABLE:
-            images = convert_from_path(str(pdf_path), dpi=150)
+            # Reduce thread count to avoid OOM on small EC2 instances
+            images = convert_from_path(str(pdf_path), dpi=150, thread_count=2)
             prs = Presentation(str(pptx_path))
 
             for i, (img, slide) in enumerate(zip(images, prs.slides), 1):
+                # Resize immediately for memory
+                img = resize_image_for_memory(img)
                 text = self._extract_text(slide)
                 results.append((i, img, text))
+
+            # 5. Clean up PDF immediately
+            try:
+                os.remove(pdf_path)
+            except:
+                pass
         else:
             raise Exception("pdf2image not available")
 
         return results
 
     def _convert_via_shapes(self, pptx_path: Path) -> List[Tuple[int, Image.Image, str]]:
-        """Extract and composite shapes into slide images"""
+        """Extract and composite shapes into slide images (Pure Python Fallback)"""
         results = []
         prs = Presentation(str(pptx_path))
 
-        slide_width = int(prs.slide_width.inches * 96)  # 96 DPI
-        slide_height = int(prs.slide_height.inches * 96)
+        # Use smaller canvas for fallback to save memory
+        slide_width = 800
+        slide_height = 600
 
         for slide_num, slide in enumerate(prs.slides, 1):
-            # Create base image with dark blue background (common for PPTs)
+            # Create base image
             img = Image.new('RGB', (slide_width, slide_height), '#1E3A5F')
-
             text = self._extract_text(slide)
 
             # Composite images from slide
             for shape in slide.shapes:
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
                     try:
-                        shape_img = Image.open(io.BytesIO(shape.image.blob))
+                        if hasattr(shape, "image"):
+                            shape_img = Image.open(io.BytesIO(shape.image.blob))
 
-                        # Calculate position and size
-                        left = int(shape.left.inches * 96) if shape.left else 0
-                        top = int(shape.top.inches * 96) if shape.top else 0
-                        width = int(shape.width.inches * 96) if shape.width else shape_img.width
-                        height = int(shape.height.inches * 96) if shape.height else shape_img.height
+                            # Resize large shape images immediately
+                            shape_img.thumbnail((400, 400))
 
-                        # Resize
-                        shape_img = shape_img.resize((width, height), Image.Resampling.LANCZOS)
+                            # Handle transparency
+                            if shape_img.mode == 'RGBA':
+                                bg = Image.new('RGB', shape_img.size, '#1E3A5F')
+                                bg.paste(shape_img, mask=shape_img.split()[3])
+                                shape_img = bg
+                            elif shape_img.mode != 'RGB':
+                                shape_img = shape_img.convert('RGB')
 
-                        # Handle transparency
-                        if shape_img.mode == 'RGBA':
-                            bg = Image.new('RGB', shape_img.size, '#1E3A5F')
-                            bg.paste(shape_img, mask=shape_img.split()[3])
-                            shape_img = bg
-                        elif shape_img.mode != 'RGB':
-                            shape_img = shape_img.convert('RGB')
-
-                        # Paste onto canvas
-                        img.paste(shape_img, (left, top))
+                            # Center paste for rough approximation
+                            x_offset = random.randint(50, slide_width - 450)
+                            y_offset = random.randint(50, slide_height - 350)
+                            img.paste(shape_img, (x_offset, y_offset))
 
                     except Exception as e:
                         logger.warning(f"Shape error: {e}")
@@ -830,20 +920,6 @@ class SlideImageConverter:
             # Blue placeholder
             img = Image.new('RGB', (800, 600), '#1E3A5F')
             text = self._extract_text(slide)
-
-            # Try to extract any images
-            for shape in slide.shapes:
-                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                    try:
-                        shape_img = Image.open(io.BytesIO(shape.image.blob))
-                        if shape_img.size[0] > 100 and shape_img.size[1] > 100:
-                            if shape_img.mode != 'RGB':
-                                shape_img = shape_img.convert('RGB')
-                            img = shape_img.resize((800, 600), Image.Resampling.LANCZOS)
-                            break
-                    except:
-                        pass
-
             results.append((slide_num, img, text))
 
         return results
@@ -1184,6 +1260,9 @@ class UltimateEduPPTAnalyzer:
             total = len(slide_images)
 
             for i, (slide_num, image, text) in enumerate(slide_images):
+                # Clean memory before every slide analysis
+                clean_memory()
+
                 status.text(f"🔍 Analyzing slide {slide_num}/{total} with Gemini...")
 
                 # Get additional text from presentation data
@@ -1210,9 +1289,8 @@ class UltimateEduPPTAnalyzer:
 
                 progress.progress((i + 1) / total)
 
-                # Rate limiting
-                if i < total - 1:
-                    time.sleep(0.5)
+                # Explicitly delete image reference to free memory
+                del image
 
             progress.empty()
             status.empty()
@@ -1240,6 +1318,7 @@ class UltimateEduPPTAnalyzer:
             status = st.empty()
 
             for i, slide_data in enumerate(slides):
+                clean_memory()
                 slide_num = slide_data['slide_number']
                 status.text(f"🔍 Analyzing slide {slide_num}/{total} with Groq...")
 
@@ -1597,6 +1676,13 @@ class UltimateEduPPTAnalyzer:
             'analysis_type': 'Complete Multimodal Analysis'
         }
 
+        # FINAL CLEANUP of temp file
+        try:
+            os.remove(file_path)
+            clean_memory()
+        except:
+            pass
+
         logger.info(f"Analysis complete. Score: {overall_score}")
         return results
 
@@ -1702,6 +1788,9 @@ def create_quality_visualizations(results: Dict[str, Any]):
     plt.tight_layout()
     st.pyplot(fig)
 
+    # Close plots to free memory
+    plt.close(fig)
+
     # Word Cloud
     st.markdown("### ☁️ Content Word Cloud")
     all_text = ' '.join([' '.join(s.get('text_content', [])) for s in slides])
@@ -1725,6 +1814,7 @@ def create_quality_visualizations(results: Dict[str, Any]):
                 ax_wc.axis('off')
                 ax_wc.set_title('Key Terms and Concepts', fontsize=14, fontweight='bold')
                 st.pyplot(fig_wc)
+                plt.close(fig_wc)
         except Exception as e:
             st.warning(f"Could not generate word cloud: {e}")
 
@@ -1884,11 +1974,6 @@ def display_slide_analysis(results: Dict[str, Any]):
             'LOW': ('#22C55E', '#ECFDF5')
         }
         border_color, bg_color = priority_colors.get(priority, ('#6B7280', '#F3F4F6'))
-
-        # Override border color if score < 90 logic applies visually to expanded view
-        if score < 90 and priority not in ['CRITICAL', 'HIGH']:
-            # Force visual warning for score < 90 even if priority isn't critical
-            pass
 
         with st.expander(f"📄 Slide {slide_num} | Score: {score}/100 | Priority: {priority}",
                          expanded=(priority in ['CRITICAL', 'HIGH'])):
@@ -2081,7 +2166,7 @@ def generate_report(results: Dict[str, Any]) -> str:
     report += f"""
 ---
 
-*Report generated by EduPPT Quality Analyzer Ultimate v7.1*
+*Report generated by EduPPT Quality Analyzer Ultimate v7.6*
 *Analysis powered by Google Gemini / Groq Llama*
 """
 
@@ -2172,11 +2257,33 @@ def apply_custom_css():
 
 
 # ============================================
+# CLEANUP UTILS (STARTUP FIX)
+# ============================================
+def cleanup_data_dir():
+    """Wipe the data directory on startup to remove old crash files"""
+    data_dir = Path("data")
+    if data_dir.exists():
+        for file in data_dir.glob("*"):
+            try:
+                if file.is_file():
+                    file.unlink()
+                    logger.info(f"🧹 Startup cleanup: Removed {file.name}")
+            except Exception as e:
+                logger.warning(f"Could not clean {file}: {e}")
+
+
+# ============================================
 # MAIN APPLICATION
 # ============================================
 
 def main():
     """Main application entry point"""
+
+    # --- STARTUP CLEANUP ---
+    if 'startup_cleanup_done' not in st.session_state:
+        cleanup_data_dir()
+        st.session_state['startup_cleanup_done'] = True
+    # -----------------------
 
     # Check critical dependencies
     dep_check = st.session_state.dep_check
@@ -2343,6 +2450,9 @@ def main():
 
             if st.button("🚀 Start Complete Analysis", type="primary"):
                 try:
+                    # Clear session state for memory
+                    clean_memory()
+
                     # Save file
                     with st.spinner("Saving file..."):
                         save_path = analyzer.save_uploaded_file(uploaded_file)
@@ -2440,8 +2550,8 @@ def main():
     st.markdown("""
     <div style="text-align: center; color: #666; padding: 2rem; 
                 background: linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%); border-radius: 15px;">
-        <h4>🎓 EduPPT Quality Analyzer Ultimate v7.2</h4>
-        <p><strong>Complete Edition</strong> - Strict Quality Mode</p>
+        <h4>🎓 EduPPT Quality Analyzer Ultimate v7.6.0</h4>
+        <p><strong>Complete Enterprise Edition</strong> - AWS EC2 Optimized</p>
         <p>Powered by Google Gemini 2.0 Flash & Groq Llama 4</p>
         <p>Specialized for B.Tech Engineering Education</p>
     </div>

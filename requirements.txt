@@ -13,3 +13,5 @@ unstructured[pptx]>=0.10.0
 pillow>=9.0.0
 google-generativeai>=0.8.5
 pdf2image>=1.17.0
+python-dotenv
+watchdog
