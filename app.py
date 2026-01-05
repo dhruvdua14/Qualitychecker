@@ -1,10 +1,11 @@
 """
 ================================================================================
-EduPPT Quality Analyzer Ultimate - Complete Edition v7.6 (LibreOffice EC2 Fix)
+EduPPT Quality Analyzer Ultimate - Complete Edition v7.7 (Dark/Light Theme Fix)
 ================================================================================
 The MOST COMPREHENSIVE PowerPoint Quality Analyzer for B.Tech Education
 
 FEATURES:
+✅ UI FIXED: Perfect Dark/Light Theme Compatibility
 ✅ FIXED: LibreOffice "Exit Status 1" Error (Custom User Profile)
 ✅ .ENV File Support for API Keys
 ✅ Google Gemini 2.0 Flash Multimodal Analysis (Best Accuracy)
@@ -15,7 +16,7 @@ FEATURES:
 ✅ Slide-by-Slide AI Recommendations
 
 Author: Enhanced for PhysicsWallah EdTech
-Version: 7.6.0 (LibreOffice Profile Fix + AWS Stability)
+Version: 7.7.0 (Theme UI Patch + AWS Stability)
 ================================================================================
 """
 
@@ -1688,11 +1689,11 @@ class UltimateEduPPTAnalyzer:
 
 
 # ============================================
-# VISUALIZATION FUNCTIONS
+# VISUALIZATION FUNCTIONS (THEME AWARE)
 # ============================================
 
 def create_quality_visualizations(results: Dict[str, Any]):
-    """Create comprehensive visualizations"""
+    """Create comprehensive visualizations - THEME AWARE"""
     st.markdown("### 📊 Quality Analysis Visualizations")
 
     slides = results.get('enhanced_data', {}).get('slides', [])
@@ -1702,14 +1703,18 @@ def create_quality_visualizations(results: Dict[str, Any]):
         st.warning("No slide data for visualization")
         return
 
-    # Create figure with subplots
+    # Use default matplotlib style which usually adapts better or specific dark mode friendly style
+    plt.style.use('default')
+
+    # Create figure with transparent background for theme compatibility
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.patch.set_alpha(0.0)  # Transparent figure background
 
     # 1. Category Scores Bar Chart
     ax1 = axes[0, 0]
+    ax1.patch.set_alpha(0.0)  # Transparent axis background
     categories = list(quality.keys())
     scores = [quality[cat]['overall_score'] for cat in categories]
-    # UPDATED: Red if less than 90, Green if 90 or more
     colors = ['#10B981' if s >= 90 else '#EF4444' for s in scores]
 
     y_pos = range(len(categories))
@@ -1720,12 +1725,19 @@ def create_quality_visualizations(results: Dict[str, Any]):
     ax1.set_title('Quality Scores by Category')
     ax1.set_xlim(0, 100)
 
+    # Set text colors to work in both themes (auto) or specific grey
+    ax1.tick_params(axis='x', colors='gray')
+    ax1.tick_params(axis='y', colors='gray')
+    ax1.title.set_color('gray')
+    ax1.xaxis.label.set_color('gray')
+
     for bar, score in zip(bars, scores):
         ax1.text(bar.get_width() + 1, bar.get_y() + bar.get_height() / 2,
-                 f'{score}', va='center', fontweight='bold')
+                 f'{score}', va='center', fontweight='bold', color='gray')
 
     # 2. Educational Elements Pie Chart
     ax2 = axes[0, 1]
+    ax2.patch.set_alpha(0.0)
     edu = results['enhanced_data'].get('educational_elements', {})
     labels = [k.replace('_', ' ').title() for k in edu.keys()]
     values = list(edu.values())
@@ -1734,45 +1746,48 @@ def create_quality_visualizations(results: Dict[str, Any]):
         colors_pie = plt.cm.Set3(np.linspace(0, 1, len(labels)))
         wedges, texts, autotexts = ax2.pie(values, labels=labels, autopct='%1.0f%%',
                                            colors=colors_pie, startangle=90)
-        ax2.set_title('Educational Elements Distribution')
+        ax2.set_title('Educational Elements Distribution', color='gray')
+        for text in texts: text.set_color('gray')
+        for autotext in autotexts: autotext.set_color('black')  # Keep inside pie readable
     else:
         ax2.text(0.5, 0.5, 'No Educational\nElements Found',
-                 ha='center', va='center', fontsize=12)
-        ax2.set_title('Educational Elements Distribution')
+                 ha='center', va='center', fontsize=12, color='gray')
+        ax2.set_title('Educational Elements Distribution', color='gray')
 
     # 3. Slide Scores Line Chart
     ax3 = axes[1, 0]
+    ax3.patch.set_alpha(0.0)
     if results.get('ai_results'):
         slide_nums = sorted(results['ai_results'].keys())
         slide_scores = [results['ai_results'][n].get('overall_score', 50) for n in slide_nums]
-
-        # Color points based on score < 90
         point_colors = ['#10B981' if s >= 90 else '#EF4444' for s in slide_scores]
 
-        ax3.plot(slide_nums, slide_scores, '-', color='#666666', linewidth=1, alpha=0.5)
+        ax3.plot(slide_nums, slide_scores, '-', color='#888888', linewidth=1, alpha=0.5)
         for x, y, c in zip(slide_nums, slide_scores, point_colors):
             ax3.plot(x, y, 'o', color=c, markersize=8)
 
         ax3.axhline(y=90, color='#10B981', linestyle='--', label='Excellent (90)')
         ax3.fill_between(slide_nums, slide_scores, alpha=0.1, color='#7C3AED')
     else:
-        # Use basic scores
         slide_nums = [s['slide_number'] for s in slides]
         slide_scores = [s.get('basic_score', 50) for s in slides]
         point_colors = ['#10B981' if s >= 90 else '#EF4444' for s in slide_scores]
 
-        ax3.plot(slide_nums, slide_scores, '-', color='#666666', linewidth=1, alpha=0.5)
+        ax3.plot(slide_nums, slide_scores, '-', color='#888888', linewidth=1, alpha=0.5)
         for x, y, c in zip(slide_nums, slide_scores, point_colors):
             ax3.plot(x, y, 'o', color=c, markersize=8)
 
-    ax3.set_xlabel('Slide Number')
-    ax3.set_ylabel('Quality Score')
-    ax3.set_title('Slide-by-Slide Quality Scores')
+    ax3.set_xlabel('Slide Number', color='gray')
+    ax3.set_ylabel('Quality Score', color='gray')
+    ax3.set_title('Slide-by-Slide Quality Scores', color='gray')
+    ax3.tick_params(axis='x', colors='gray')
+    ax3.tick_params(axis='y', colors='gray')
     ax3.set_ylim(0, 100)
     ax3.grid(True, alpha=0.3)
 
     # 4. Word Count Distribution
     ax4 = axes[1, 1]
+    ax4.patch.set_alpha(0.0)
     word_counts = [s['word_count'] for s in slides]
     slide_nums = [s['slide_number'] for s in slides]
 
@@ -1780,10 +1795,12 @@ def create_quality_visualizations(results: Dict[str, Any]):
     ax4.bar(slide_nums, word_counts, color=colors_bars)
     ax4.axhline(y=50, color='#10B981', linestyle='--', label='Optimal Max (50)')
     ax4.axhline(y=80, color='#EF4444', linestyle='--', label='Too Much (80)')
-    ax4.set_xlabel('Slide Number')
-    ax4.set_ylabel('Word Count')
-    ax4.set_title('Word Count per Slide')
-    ax4.legend()
+    ax4.set_xlabel('Slide Number', color='gray')
+    ax4.set_ylabel('Word Count', color='gray')
+    ax4.set_title('Word Count per Slide', color='gray')
+    ax4.tick_params(axis='x', colors='gray')
+    ax4.tick_params(axis='y', colors='gray')
+    ax4.legend(facecolor='white', framealpha=0.5)  # Semi-transparent legend
 
     plt.tight_layout()
     st.pyplot(fig)
@@ -1802,17 +1819,19 @@ def create_quality_visualizations(results: Dict[str, Any]):
                      if w not in stop_words and len(w) > 3 and w.isalpha()]
 
             if words:
+                # Wordcloud handles its own background
                 wordcloud = WordCloud(
                     width=1000, height=400,
-                    background_color='white',
+                    background_color='black',  # Dark background usually looks better
                     colormap='viridis',
                     max_words=100
                 ).generate(' '.join(words))
 
                 fig_wc, ax_wc = plt.subplots(figsize=(12, 5))
+                fig_wc.patch.set_alpha(0.0)
                 ax_wc.imshow(wordcloud, interpolation='bilinear')
                 ax_wc.axis('off')
-                ax_wc.set_title('Key Terms and Concepts', fontsize=14, fontweight='bold')
+                ax_wc.set_title('Key Terms and Concepts', fontsize=14, fontweight='bold', color='gray')
                 st.pyplot(fig_wc)
                 plt.close(fig_wc)
         except Exception as e:
@@ -1820,42 +1839,45 @@ def create_quality_visualizations(results: Dict[str, Any]):
 
 
 # ============================================
-# DISPLAY FUNCTIONS
+# DISPLAY FUNCTIONS (THEME AWARE)
 # ============================================
 
 def display_overall_dashboard(results: Dict[str, Any]):
-    """Display main quality dashboard"""
+    """Display main quality dashboard - THEME AWARE"""
     st.markdown("## 📊 Quality Assessment Dashboard")
 
     score = results['overall_score']
 
-    # Score classification - UPDATED: Red if < 90
+    # Use generic border colors, avoid hardcoded white/black backgrounds
     if score >= 90:
-        score_class = "score-excellent"
         rating = "🏆 EXCELLENT"
-        card_bg = "#ECFDF5"
-        border = "#10B981"
+        border = "#10B981"  # Green
     else:
-        # Anything below 90 is treated as Red/Needs Improvement visually
-        score_class = "score-poor"
         rating = "⚠️ NEEDS IMPROVEMENT"
-        card_bg = "#FEF2F2"
-        border = "#EF4444"
+        border = "#EF4444"  # Red
 
+    # Use Streamlit's native CSS variables for background/text adaptation
     st.markdown(f"""
-    <div style="background: {card_bg}; border: 3px solid {border}; 
-                border-radius: 20px; padding: 2rem; text-align: center; margin: 1rem 0;">
-        <h2 style="margin: 0;">Overall Educational Quality Score</h2>
+    <div style="
+        border: 3px solid {border}; 
+        background-color: var(--secondary-background-color);
+        border-radius: 20px; 
+        padding: 2rem; 
+        text-align: center; 
+        margin: 1rem 0;
+        color: var(--text-color);
+    ">
+        <h2 style="margin: 0; color: var(--text-color);">Overall Educational Quality Score</h2>
         <h1 style="font-size: 4rem; margin: 0.5rem 0; color: {border};">{score}/100</h1>
-        <h3 style="margin: 0;">{rating}</h3>
-        <p style="margin-top: 1rem;">
+        <h3 style="margin: 0; color: var(--text-color);">{rating}</h3>
+        <p style="margin-top: 1rem; color: var(--text-color);">
             <strong>Target:</strong> {results.get('target_audience', 'B.Tech Students')} | 
             <strong>Subject:</strong> {results.get('subject_area', 'Engineering')}
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Quick stats
+    # Quick stats using native metrics (theme aware by default)
     data = results.get('enhanced_data', {})
     col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -1880,7 +1902,6 @@ def display_overall_dashboard(results: Dict[str, Any]):
         col = cols[i % 4]
         cat_score = analysis.get('overall_score', 0)
 
-        # UPDATED: Red if < 90
         if cat_score >= 90:
             emoji = "🟢"
             color = "#10B981"
@@ -1890,10 +1911,18 @@ def display_overall_dashboard(results: Dict[str, Any]):
 
         with col:
             cat_name = UltimateEduPPTAnalyzer.QUALITY_CATEGORIES.get(cat, cat.replace('_', ' ').title())
+            # Theme aware card
             st.markdown(f"""
-            <div style="background: white; padding: 1rem; border-radius: 10px; 
-                        border-left: 4px solid {color}; margin: 0.5rem 0; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-                <div style="font-size: 0.9rem; color: #666;">{emoji} {cat_name}</div>
+            <div style="
+                background-color: var(--secondary-background-color); 
+                padding: 1rem; 
+                border-radius: 10px; 
+                border-left: 4px solid {color}; 
+                margin: 0.5rem 0; 
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                color: var(--text-color);
+            ">
+                <div style="font-size: 0.9rem; opacity: 0.8;">{emoji} {cat_name}</div>
                 <div style="font-size: 1.5rem; font-weight: bold; color: {color};">{cat_score}/100</div>
             </div>
             """, unsafe_allow_html=True)
@@ -1966,24 +1995,30 @@ def display_slide_analysis(results: Dict[str, Any]):
         priority = r.get('priority_level', 'MEDIUM')
         score = r.get('overall_score', 50)
 
-        # Priority colors
-        priority_colors = {
-            'CRITICAL': ('#EF4444', '#FEE2E2'),
-            'HIGH': ('#F97316', '#FEF3C7'),
-            'MEDIUM': ('#EAB308', '#FFFBEB'),
-            'LOW': ('#22C55E', '#ECFDF5')
-        }
-        border_color, bg_color = priority_colors.get(priority, ('#6B7280', '#F3F4F6'))
+        # Priority colors (CSS safe)
+        if priority == 'CRITICAL':
+            border_color = '#EF4444'  # Red
+            badge_bg = 'rgba(239, 68, 68, 0.2)'
+        elif priority == 'HIGH':
+            border_color = '#F97316'  # Orange
+            badge_bg = 'rgba(249, 115, 22, 0.2)'
+        elif priority == 'LOW':
+            border_color = '#22C55E'  # Green
+            badge_bg = 'rgba(34, 197, 94, 0.2)'
+        else:  # MEDIUM
+            border_color = '#EAB308'  # Yellow
+            badge_bg = 'rgba(234, 179, 8, 0.2)'
 
         with st.expander(f"📄 Slide {slide_num} | Score: {score}/100 | Priority: {priority}",
                          expanded=(priority in ['CRITICAL', 'HIGH'])):
 
             # Priority badge
             st.markdown(f"""
-            <span style="background: {border_color}; color: white; padding: 0.3rem 1rem; 
-                        border-radius: 20px; font-weight: bold; font-size: 0.85rem;">
+            <div style="background-color: {badge_bg}; border: 1px solid {border_color}; color: {border_color}; 
+                        padding: 0.3rem 1rem; border-radius: 20px; font-weight: bold; font-size: 0.85rem; 
+                        display: inline-block; margin-bottom: 10px;">
                 {priority} PRIORITY
-            </span>
+            </div>
             """, unsafe_allow_html=True)
 
             # Scores
@@ -1999,27 +2034,17 @@ def display_slide_analysis(results: Dict[str, Any]):
 
             # Critical Errors
             if r.get('critical_errors') and any(r['critical_errors']):
-                st.markdown("#### 🚨 Critical Errors")
-                st.markdown(f"""
-                <div style="background: #FEE2E2; border: 2px solid #EF4444; 
-                            border-radius: 10px; padding: 1rem; margin: 0.5rem 0;">
-                """, unsafe_allow_html=True)
+                st.error("🚨 **Critical Errors:**")
                 for err in r['critical_errors']:
                     if err and len(err) > 3:
-                        st.markdown(f"❌ **{err}**")
-                st.markdown("</div>", unsafe_allow_html=True)
+                        st.markdown(f"- {err}")
 
             # Immediate Fixes
             if r.get('immediate_fixes') and any(r['immediate_fixes']):
-                st.markdown("#### ⚡ Immediate Fixes Required")
-                st.markdown(f"""
-                <div style="background: #FEF3C7; border: 2px solid #F59E0B; 
-                            border-radius: 10px; padding: 1rem; margin: 0.5rem 0;">
-                """, unsafe_allow_html=True)
+                st.warning("⚡ **Immediate Fixes Required:**")
                 for i, fix in enumerate(r['immediate_fixes'], 1):
                     if fix and len(fix) > 3:
-                        st.markdown(f"**{i}.** {fix}")
-                st.markdown("</div>", unsafe_allow_html=True)
+                        st.markdown(f"{i}. {fix}")
 
             # Other issues
             tabs = st.tabs(["Conceptual", "Visual", "Text", "Recommendations", "Positives"])
@@ -2056,7 +2081,7 @@ def display_slide_analysis(results: Dict[str, Any]):
 
 
 def display_issues_summary(results: Dict[str, Any]):
-    """Display summary of all issues"""
+    """Display summary of all issues - THEME AWARE"""
     st.markdown("## 🚨 Issues Summary")
 
     quality = results.get('quality_analysis', {})
@@ -2075,13 +2100,8 @@ def display_issues_summary(results: Dict[str, Any]):
     st.markdown(f"**Found {len(all_issues)} issues to address:**")
 
     for i, item in enumerate(all_issues, 1):
-        st.markdown(f"""
-        <div style="background: #FEF2F2; border-left: 4px solid #EF4444; 
-                    padding: 1rem; margin: 0.5rem 0; border-radius: 0 8px 8px 0;">
-            <strong>#{i} [{item['category']}]</strong><br>
-            {item['issue']}
-        </div>
-        """, unsafe_allow_html=True)
+        # Use st.warning for theme-safe styling instead of raw HTML with hardcoded colors
+        st.warning(f"**#{i} [{item['category']}]**\n\n{item['issue']}")
 
 
 def generate_report(results: Dict[str, Any]) -> str:
@@ -2166,7 +2186,7 @@ def generate_report(results: Dict[str, Any]) -> str:
     report += f"""
 ---
 
-*Report generated by EduPPT Quality Analyzer Ultimate v7.6*
+*Report generated by EduPPT Quality Analyzer Ultimate v7.7*
 *Analysis powered by Google Gemini / Groq Llama*
 """
 
@@ -2174,14 +2194,14 @@ def generate_report(results: Dict[str, Any]) -> str:
 
 
 # ============================================
-# STREAMLIT UI STYLING
+# STREAMLIT UI STYLING (DARK/LIGHT FIX)
 # ============================================
 
 def apply_custom_css():
-    """Apply custom CSS styling"""
+    """Apply custom CSS styling using CSS Variables for Theme Adaptation"""
     st.markdown("""
     <style>
-    /* Main header */
+    /* Main header - Gradient stays, but text is forced white for readability */
     .main-header {
         background: linear-gradient(135deg, #1E40AF 0%, #7C3AED 50%, #DB2777 100%);
         padding: 2.5rem;
@@ -2192,20 +2212,15 @@ def apply_custom_css():
         box-shadow: 0 15px 50px rgba(30, 64, 175, 0.4);
     }
 
-    /* Score classes */
-    .score-excellent { color: #10B981; }
-    .score-good { color: #22C55E; }
-    .score-medium { color: #F59E0B; }
-    .score-poor { color: #EF4444; }
-
-    /* Cards */
+    /* Cards - Adapt to theme background */
     .quality-card {
-        background: white;
+        background-color: var(--secondary-background-color);
         padding: 1.5rem;
         border-radius: 15px;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         margin: 1rem 0;
         border-left: 5px solid #7C3AED;
+        color: var(--text-color);
     }
 
     /* Feature badges */
@@ -2245,12 +2260,6 @@ def apply_custom_css():
     .stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 25px rgba(124, 58, 237, 0.4);
-    }
-
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        font-weight: bold;
-        font-size: 1rem;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -2548,9 +2557,10 @@ def main():
     # Footer
     st.markdown("---")
     st.markdown("""
-    <div style="text-align: center; color: #666; padding: 2rem; 
-                background: linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%); border-radius: 15px;">
-        <h4>🎓 EduPPT Quality Analyzer Ultimate v7.6.0</h4>
+    <div style="text-align: center; color: gray; padding: 2rem; 
+                background: linear-gradient(135deg, var(--secondary-background-color) 0%, var(--background-color) 100%); 
+                border-radius: 15px;">
+        <h4>🎓 EduPPT Quality Analyzer Ultimate v7.7.0</h4>
         <p><strong>Complete Enterprise Edition</strong> - AWS EC2 Optimized</p>
         <p>Powered by Google Gemini 2.0 Flash & Groq Llama 4</p>
         <p>Specialized for B.Tech Engineering Education</p>
