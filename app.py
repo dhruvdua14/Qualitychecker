@@ -795,76 +795,124 @@ class SlideImageConverter:
         return results
 
     def _convert_via_libreoffice(self, pptx_path: Path) -> List[Tuple[int, Image.Image, str]]:
-        """Convert using LibreOffice -> PDF -> Images (EC2 Compatible)"""
+        """Convert using LibreOffice -> PDF -> Images (Mac Fixed)"""
         results = []
         pdf_path = self.temp_dir / f"{pptx_path.stem}.pdf"
 
-        # 1. Detect LibreOffice Binary for Linux/EC2
-        soffice_path = shutil.which("soffice") or shutil.which("libreoffice")
+        # 1. Find LibreOffice - Mac specific paths
+        soffice_candidates = [
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+            "/usr/local/bin/soffice",
+            "/opt/homebrew/bin/soffice",
+            shutil.which("soffice")
+        ]
 
-        # Explicit common Linux paths if 'which' fails
+        soffice_path = None
+        for candidate in soffice_candidates:
+            if candidate and os.path.exists(str(candidate)) and os.access(str(candidate), os.X_OK):
+                soffice_path = candidate
+                logger.info(f"✅ Found LibreOffice at: {soffice_path}")
+                break
+
         if not soffice_path:
-            for path in ["/usr/bin/libreoffice", "/usr/bin/soffice", "/snap/bin/libreoffice"]:
-                if os.path.exists(path):
-                    soffice_path = path
-                    break
+            raise Exception("LibreOffice not found. Install: brew install libreoffice")
 
-        if not soffice_path:
-            raise Exception("LibreOffice binary not found in system path")
+        # 2. Mac-specific: Don't use custom user profile (causes issues)
+        # Use system's default profile instead
 
-        # 2. Setup Custom User Profile for Headless Execution
-        # This prevents permission errors and locks on EC2/Servers
-        user_profile_dir = Path(tempfile.mkdtemp())
-
-        # 3. Run Headless Conversion
+        # 3. Simplified command for Mac
         cmd = [
-            soffice_path,
-            f"-env:UserInstallation=file://{user_profile_dir.as_posix()}",  # FIX: Use temp profile
-            '--headless',
-            '--nologo',
-            '--nofrststartwizard',
-            '--convert-to', 'pdf',
-            '--outdir', str(self.temp_dir),
-            str(pptx_path)
+            str(soffice_path),
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", str(self.temp_dir.absolute()),
+            str(pptx_path.absolute())
         ]
 
         try:
-            # Pass environment variables safely
+            logger.info(f"🔄 Running: {' '.join(cmd)}")
+
+            # Set environment for Mac
             env = os.environ.copy()
-            subprocess.run(cmd, check=True, capture_output=True, timeout=120, env=env)
+
+            # Run with detailed output
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=180,
+                env=env,
+                cwd=str(Path.home())  # Run from home directory
+            )
+
+            # Log everything
+            stdout = result.stdout.decode('utf-8', errors='ignore')
+            stderr = result.stderr.decode('utf-8', errors='ignore')
+
+            logger.info(f"LibreOffice stdout: {stdout}")
+            if stderr:
+                logger.info(f"LibreOffice stderr: {stderr}")
+
+            if result.returncode != 0:
+                error_msg = f"Exit code {result.returncode}"
+                if stderr:
+                    error_msg += f": {stderr}"
+                if stdout:
+                    error_msg += f" | stdout: {stdout}"
+
+                # Check for specific Mac errors
+                if "Couldn't create pipe" in stderr or "Couldn't create pipe" in stdout:
+                    error_msg += " | TIP: Run 'sudo xattr -r -d com.apple.quarantine /Applications/LibreOffice.app'"
+
+                raise Exception(f"LibreOffice conversion failed: {error_msg}")
+
         except subprocess.TimeoutExpired:
-            raise Exception("LibreOffice conversion timed out")
+            raise Exception("LibreOffice conversion timed out (180s)")
+
         except Exception as e:
-            raise Exception(f"LibreOffice execution failed: {str(e)}")
-        finally:
-            # Clean up the temporary user profile
-            try:
-                shutil.rmtree(user_profile_dir, ignore_errors=True)
-            except:
-                pass
+            raise Exception(f"LibreOffice execution error: {str(e)}")
 
+        # 4. Verify PDF was created
         if not pdf_path.exists():
-            raise Exception("PDF conversion failed to produce output file")
+            # Check for PDF with any name
+            possible_pdfs = list(self.temp_dir.glob("*.pdf"))
+            if possible_pdfs:
+                pdf_path = possible_pdfs[0]
+                logger.info(f"📄 Found PDF: {pdf_path}")
+            else:
+                # List what's in the directory
+                files = list(self.temp_dir.glob("*"))
+                logger.error(f"Files in temp_dir: {files}")
+                raise Exception(f"PDF not created. Expected: {pdf_path}")
 
-        # 4. Convert PDF to images
-        if PDF2IMAGE_AVAILABLE:
-            # Reduce thread count to avoid OOM on small EC2 instances
-            images = convert_from_path(str(pdf_path), dpi=150, thread_count=2)
-            prs = Presentation(str(pptx_path))
+        # 5. Convert PDF to images
+        if not PDF2IMAGE_AVAILABLE:
+            raise Exception("pdf2image not installed. Run: pip install pdf2image")
 
-            for i, (img, slide) in enumerate(zip(images, prs.slides), 1):
-                # Resize immediately for memory
-                img = resize_image_for_memory(img)
-                text = self._extract_text(slide)
-                results.append((i, img, text))
+        try:
+            logger.info(f"🖼️ Converting PDF to images...")
+            images = convert_from_path(
+                str(pdf_path),
+                dpi=150,
+                fmt='jpeg'
+            )
+            logger.info(f"✅ Extracted {len(images)} images")
 
-            # 5. Clean up PDF immediately
-            try:
-                os.remove(pdf_path)
-            except:
-                pass
-        else:
-            raise Exception("pdf2image not available")
+        except Exception as e:
+            raise Exception(f"PDF to image conversion failed: {str(e)}")
+
+        # 6. Extract text and combine
+        prs = Presentation(str(pptx_path))
+
+        for i, (img, slide) in enumerate(zip(images, prs.slides), 1):
+            img = resize_image_for_memory(img)
+            text = self._extract_text(slide)
+            results.append((i, img, text))
+
+        # 7. Cleanup PDF
+        try:
+            os.remove(pdf_path)
+        except:
+            pass
 
         return results
 
