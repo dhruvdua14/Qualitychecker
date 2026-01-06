@@ -795,15 +795,23 @@ class SlideImageConverter:
         return results
 
     def _convert_via_libreoffice(self, pptx_path: Path) -> List[Tuple[int, Image.Image, str]]:
-        """Convert using LibreOffice -> PDF -> Images (Mac Fixed)"""
+        """Convert using LibreOffice -> PDF -> Images (Cross-Platform: Mac + AWS/Linux)"""
         results = []
         pdf_path = self.temp_dir / f"{pptx_path.stem}.pdf"
 
-        # 1. Find LibreOffice - Mac specific paths
+        # 1. Find LibreOffice - CROSS-PLATFORM paths (Linux/AWS + Mac)
         soffice_candidates = [
+            # Linux/AWS paths (Ubuntu, Debian, EC2)
+            "/usr/bin/libreoffice",
+            "/usr/bin/soffice",
+
+            # Mac paths
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
             "/usr/local/bin/soffice",
             "/opt/homebrew/bin/soffice",
+
+            # Fallback: system PATH search
+            shutil.which("libreoffice"),
             shutil.which("soffice")
         ]
 
@@ -815,36 +823,62 @@ class SlideImageConverter:
                 break
 
         if not soffice_path:
-            raise Exception("LibreOffice not found. Install: brew install libreoffice")
+            raise Exception(
+                "LibreOffice not found. Install with: sudo apt-get install libreoffice (Linux) or brew install libreoffice (Mac)")
 
-        # 2. Mac-specific: Don't use custom user profile (causes issues)
-        # Use system's default profile instead
+        # 2. Detect platform and use appropriate command
+        import platform
+        is_linux = platform.system() == "Linux"
 
-        # 3. Simplified command for Mac
-        cmd = [
-            str(soffice_path),
-            "--headless",
-            "--convert-to", "pdf",
-            "--outdir", str(self.temp_dir.absolute()),
-            str(pptx_path.absolute())
-        ]
+        if is_linux:
+            # AWS/Linux: Use custom user profile (required for headless server)
+            user_profile_dir = Path(tempfile.mkdtemp(prefix="libreoffice_"))
+
+            cmd = [
+                str(soffice_path),
+                f"--env:UserInstallation=file://{user_profile_dir.as_posix()}",
+                "--headless",
+                "--invisible",
+                "--nocrashreport",
+                "--nodefault",
+                "--nofirststartwizard",
+                "--nolockcheck",
+                "--nologo",
+                "--norestore",
+                "--convert-to", "pdf",
+                "--outdir", str(self.temp_dir.absolute()),
+                str(pptx_path.absolute())
+            ]
+        else:
+            # Mac: Simplified command (custom profile causes issues on Mac)
+            user_profile_dir = None
+
+            cmd = [
+                str(soffice_path),
+                "--headless",
+                "--convert-to", "pdf",
+                "--outdir", str(self.temp_dir.absolute()),
+                str(pptx_path.absolute())
+            ]
 
         try:
             logger.info(f"🔄 Running: {' '.join(cmd)}")
 
-            # Set environment for Mac
+            # Set environment
             env = os.environ.copy()
+            if is_linux and user_profile_dir:
+                env['HOME'] = str(user_profile_dir)
 
-            # Run with detailed output
+            # Run conversion
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 timeout=180,
                 env=env,
-                cwd=str(Path.home())  # Run from home directory
+                cwd=str(Path.home()) if not is_linux else str(self.temp_dir)
             )
 
-            # Log everything
+            # Log output
             stdout = result.stdout.decode('utf-8', errors='ignore')
             stderr = result.stderr.decode('utf-8', errors='ignore')
 
@@ -859,8 +893,10 @@ class SlideImageConverter:
                 if stdout:
                     error_msg += f" | stdout: {stdout}"
 
-                # Check for specific Mac errors
-                if "Couldn't create pipe" in stderr or "Couldn't create pipe" in stdout:
+                # Platform-specific error hints
+                if is_linux and "Couldn't create" in stderr:
+                    error_msg += " | TIP: Ensure LibreOffice is fully installed with: sudo apt-get install -y libreoffice libreoffice-core fonts-liberation"
+                elif not is_linux and "Couldn't create pipe" in stderr:
                     error_msg += " | TIP: Run 'sudo xattr -r -d com.apple.quarantine /Applications/LibreOffice.app'"
 
                 raise Exception(f"LibreOffice conversion failed: {error_msg}")
@@ -871,6 +907,14 @@ class SlideImageConverter:
         except Exception as e:
             raise Exception(f"LibreOffice execution error: {str(e)}")
 
+        finally:
+            # Cleanup temp profile (Linux only)
+            if is_linux and user_profile_dir:
+                try:
+                    shutil.rmtree(user_profile_dir, ignore_errors=True)
+                except:
+                    pass
+
         # 4. Verify PDF was created
         if not pdf_path.exists():
             # Check for PDF with any name
@@ -879,7 +923,6 @@ class SlideImageConverter:
                 pdf_path = possible_pdfs[0]
                 logger.info(f"📄 Found PDF: {pdf_path}")
             else:
-                # List what's in the directory
                 files = list(self.temp_dir.glob("*"))
                 logger.error(f"Files in temp_dir: {files}")
                 raise Exception(f"PDF not created. Expected: {pdf_path}")
@@ -893,6 +936,7 @@ class SlideImageConverter:
             images = convert_from_path(
                 str(pdf_path),
                 dpi=150,
+                thread_count=1 if is_linux else 2,  # Single thread on AWS
                 fmt='jpeg'
             )
             logger.info(f"✅ Extracted {len(images)} images")
