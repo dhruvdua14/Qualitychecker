@@ -805,13 +805,11 @@ class SlideImageConverter:
             # Linux/AWS paths (Ubuntu, Debian, EC2)
             "/usr/bin/libreoffice",
             "/usr/bin/soffice",
-
             # Mac paths
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
             "/usr/local/bin/soffice",
             "/opt/homebrew/bin/soffice",
-
-            # Fallback: system PATH search
+            # Fallback
             shutil.which("libreoffice"),
             shutil.which("soffice")
         ]
@@ -824,20 +822,33 @@ class SlideImageConverter:
                 break
 
         if not soffice_path:
-            raise Exception(
-                "LibreOffice not found. Install with: sudo apt-get install libreoffice (Linux) or brew install libreoffice (Mac)")
+            raise Exception("LibreOffice not found. Install with: sudo apt-get install libreoffice default-jre")
 
-        # 2. Detect platform and use appropriate command
+        # 2. Detect platform and setup environment
         import platform
         is_linux = platform.system() == "Linux"
+        user_profile_dir = None
+
+        # Prepare Environment Variables
+        env = os.environ.copy()
+
+        # CRITICAL FIX 1: Inject System PATH for AWS
+        current_path = env.get('PATH', '')
+        required_paths = ['/usr/bin', '/bin', '/usr/local/bin']
+        for p in required_paths:
+            if p not in current_path:
+                current_path = f"{p}:{current_path}"
+        env['PATH'] = current_path
 
         if is_linux:
-            # AWS/Linux: Use custom user profile (required for headless server)
+            # AWS/Linux: Use custom user profile to prevent locking
             user_profile_dir = Path(tempfile.mkdtemp(prefix="libreoffice_"))
+            # CRITICAL FIX 2: Pass UserInstallation as ENV VARIABLE, not CLI Argument
+            # This fixes the "Error in option" syntax issue
+            env['UserInstallation'] = f"file://{user_profile_dir.as_posix()}"
 
             cmd = [
                 str(soffice_path),
-                f"--env:UserInstallation=file://{user_profile_dir.as_posix()}",
                 "--headless",
                 "--invisible",
                 "--nocrashreport",
@@ -851,9 +862,7 @@ class SlideImageConverter:
                 str(pptx_path.absolute())
             ]
         else:
-            # Mac: Simplified command (custom profile causes issues on Mac)
-            user_profile_dir = None
-
+            # Mac configuration
             cmd = [
                 str(soffice_path),
                 "--headless",
@@ -863,56 +872,31 @@ class SlideImageConverter:
             ]
 
         try:
-            logger.info(f"🔄 Running: {' '.join(cmd)}")
-
-            # CRITICAL FIX: Manually inject PATH to environment
-            # This fixes "dirname: not found" and "ls: not found" errors on EC2
-            env = os.environ.copy()
-
-            # Ensure standard paths are present
-            current_path = env.get('PATH', '')
-            required_paths = ['/usr/bin', '/bin', '/usr/local/bin']
-
-            for p in required_paths:
-                if p not in current_path:
-                    current_path = f"{p}:{current_path}"
-
-            env['PATH'] = current_path
-
-            if is_linux and user_profile_dir:
-                env['HOME'] = str(user_profile_dir)
+            logger.info(f"🔄 Running LibreOffice conversion...")
 
             # Run conversion
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 timeout=180,
-                env=env,  # Pass the corrected environment
-                cwd=str(Path.home()) if not is_linux else str(self.temp_dir)
+                env=env,
+                cwd=str(self.temp_dir)  # Execute inside temp dir to avoid permission issues
             )
 
             # Log output
             stdout = result.stdout.decode('utf-8', errors='ignore')
             stderr = result.stderr.decode('utf-8', errors='ignore')
 
-            logger.info(f"LibreOffice stdout: {stdout}")
-            if stderr:
-                logger.info(f"LibreOffice stderr: {stderr}")
-
             if result.returncode != 0:
-                error_msg = f"Exit code {result.returncode}"
-                if stderr:
-                    error_msg += f": {stderr}"
-                if stdout:
-                    error_msg += f" | stdout: {stdout}"
+                logger.error(f"LibreOffice failed. Code: {result.returncode}")
+                logger.error(f"STDOUT: {stdout}")
+                logger.error(f"STDERR: {stderr}")
 
-                # Platform-specific error hints
-                if is_linux and "Couldn't create" in stderr:
-                    error_msg += " | TIP: Ensure LibreOffice is fully installed with: sudo apt-get install -y libreoffice libreoffice-core fonts-liberation"
-                elif not is_linux and "Couldn't create pipe" in stderr:
-                    error_msg += " | TIP: Run 'sudo xattr -r -d com.apple.quarantine /Applications/LibreOffice.app'"
+                # Check for common Java error
+                if "javaldx" in stderr:
+                    raise Exception("LibreOffice Java error: Run 'sudo apt install default-jre'")
 
-                raise Exception(f"LibreOffice conversion failed: {error_msg}")
+                raise Exception(f"LibreOffice conversion failed: {stderr}")
 
         except subprocess.TimeoutExpired:
             raise Exception("LibreOffice conversion timed out (180s)")
@@ -930,30 +914,24 @@ class SlideImageConverter:
 
         # 4. Verify PDF was created
         if not pdf_path.exists():
-            # Check for PDF with any name
+            # Check for PDF with any name in temp_dir
             possible_pdfs = list(self.temp_dir.glob("*.pdf"))
             if possible_pdfs:
                 pdf_path = possible_pdfs[0]
-                logger.info(f"📄 Found PDF: {pdf_path}")
             else:
-                files = list(self.temp_dir.glob("*"))
-                logger.error(f"Files in temp_dir: {files}")
-                raise Exception(f"PDF not created. Expected: {pdf_path}")
+                raise Exception(f"PDF not created. Output not found in {self.temp_dir}")
 
         # 5. Convert PDF to images
         if not PDF2IMAGE_AVAILABLE:
             raise Exception("pdf2image not installed. Run: pip install pdf2image")
 
         try:
-            logger.info(f"🖼️ Converting PDF to images...")
             images = convert_from_path(
                 str(pdf_path),
                 dpi=150,
-                thread_count=1 if is_linux else 2,  # Single thread on AWS
+                thread_count=1 if is_linux else 2,
                 fmt='jpeg'
             )
-            logger.info(f"✅ Extracted {len(images)} images")
-
         except Exception as e:
             raise Exception(f"PDF to image conversion failed: {str(e)}")
 
