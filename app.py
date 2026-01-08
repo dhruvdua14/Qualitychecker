@@ -1,10 +1,11 @@
 """
 ================================================================================
-EduPPT Quality Analyzer Ultimate - Complete Edition v7.7 (Dark/Light Theme Fix)
+EduPPT Quality Analyzer Ultimate - Complete Edition v7.8 (AWS PATH Fix)
 ================================================================================
 The MOST COMPREHENSIVE PowerPoint Quality Analyzer for B.Tech Education
 
 FEATURES:
+✅ FIXED: "dirname/ls not found" Error (Explicit PATH Injection)
 ✅ UI FIXED: Perfect Dark/Light Theme Compatibility
 ✅ FIXED: LibreOffice "Exit Status 1" Error (Custom User Profile)
 ✅ .ENV File Support for API Keys
@@ -16,7 +17,7 @@ FEATURES:
 ✅ Slide-by-Slide AI Recommendations
 
 Author: Enhanced for PhysicsWallah EdTech
-Version: 7.7.0 (Theme UI Patch + AWS Stability)
+Version: 7.8.0 (PATH Env Fix + Theme UI + AWS Stability)
 ================================================================================
 """
 
@@ -754,7 +755,7 @@ Provide analysis in this format:
 
 
 # ============================================
-# SLIDE IMAGE CONVERTER (AWS PATCHED)
+# SLIDE IMAGE CONVERTER (AWS PATH PATCHED)
 # ============================================
 
 class SlideImageConverter:
@@ -864,8 +865,20 @@ class SlideImageConverter:
         try:
             logger.info(f"🔄 Running: {' '.join(cmd)}")
 
-            # Set environment
+            # CRITICAL FIX: Manually inject PATH to environment
+            # This fixes "dirname: not found" and "ls: not found" errors on EC2
             env = os.environ.copy()
+
+            # Ensure standard paths are present
+            current_path = env.get('PATH', '')
+            required_paths = ['/usr/bin', '/bin', '/usr/local/bin']
+
+            for p in required_paths:
+                if p not in current_path:
+                    current_path = f"{p}:{current_path}"
+
+            env['PATH'] = current_path
+
             if is_linux and user_profile_dir:
                 env['HOME'] = str(user_profile_dir)
 
@@ -874,7 +887,7 @@ class SlideImageConverter:
                 cmd,
                 capture_output=True,
                 timeout=180,
-                env=env,
+                env=env,  # Pass the corrected environment
                 cwd=str(Path.home()) if not is_linux else str(self.temp_dir)
             )
 
