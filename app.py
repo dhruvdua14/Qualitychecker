@@ -843,8 +843,7 @@ class SlideImageConverter:
         if is_linux:
             # AWS/Linux: Use custom user profile to prevent locking
             user_profile_dir = Path(tempfile.mkdtemp(prefix="libreoffice_"))
-            # CRITICAL FIX 2: Pass UserInstallation as ENV VARIABLE, not CLI Argument
-            # This fixes the "Error in option" syntax issue
+            # CRITICAL FIX 2: Pass UserInstallation as ENV VARIABLE
             env['UserInstallation'] = f"file://{user_profile_dir.as_posix()}"
 
             cmd = [
@@ -880,7 +879,7 @@ class SlideImageConverter:
                 capture_output=True,
                 timeout=180,
                 env=env,
-                cwd=str(self.temp_dir)  # Execute inside temp dir to avoid permission issues
+                cwd=str(self.temp_dir)
             )
 
             # Log output
@@ -889,13 +888,8 @@ class SlideImageConverter:
 
             if result.returncode != 0:
                 logger.error(f"LibreOffice failed. Code: {result.returncode}")
-                logger.error(f"STDOUT: {stdout}")
-                logger.error(f"STDERR: {stderr}")
-
-                # Check for common Java error
                 if "javaldx" in stderr:
                     raise Exception("LibreOffice Java error: Run 'sudo apt install default-jre'")
-
                 raise Exception(f"LibreOffice conversion failed: {stderr}")
 
         except subprocess.TimeoutExpired:
@@ -921,17 +915,30 @@ class SlideImageConverter:
             else:
                 raise Exception(f"PDF not created. Output not found in {self.temp_dir}")
 
-        # 5. Convert PDF to images
+        # 5. Convert PDF to images (CORRECTLY INDENTED NOW)
         if not PDF2IMAGE_AVAILABLE:
             raise Exception("pdf2image not installed. Run: pip install pdf2image")
 
         try:
+            # AWS typically installs poppler here
+            poppler_path = "/usr/bin"
+
+            # Double check it actually exists there
+            if not os.path.exists(os.path.join(poppler_path, "pdfinfo")):
+                if os.path.exists("/usr/local/bin/pdfinfo"):
+                    poppler_path = "/usr/local/bin"
+                else:
+                    logger.warning("Could not find pdfinfo in standard paths, letting system guess")
+                    poppler_path = None
+
             images = convert_from_path(
                 str(pdf_path),
                 dpi=150,
                 thread_count=1 if is_linux else 2,
-                fmt='jpeg'
+                fmt='jpeg',
+                poppler_path=poppler_path  # AWS FIX
             )
+
         except Exception as e:
             raise Exception(f"PDF to image conversion failed: {str(e)}")
 
